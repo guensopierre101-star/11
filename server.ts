@@ -361,16 +361,19 @@ app.post('/api/analyze-topic', async (req: Request, res: Response) => {
       customGeminiModel,
       customGroqModel,
       customWhisperModel,
+      mimeType,
+      textResponse,
     } = req.body;
 
-    if (!audioBase64) {
-      return res.status(400).json({ error: 'Enregistrement audio manquant.' });
+    if (!audioBase64 && !textResponse) {
+      return res.status(400).json({ error: 'Enregistrement audio ou texte manquant.' });
     }
 
     const context = `
 Word: "${word || ''}"
 Topic: "${topicTitle || ''}"
 Question: "${question || ''}"
+${textResponse ? `\nStudent answer:\n"${textResponse}"\n` : ''}
 
 Analyze the student's spoken answer very carefully as an English teacher.
 
@@ -436,20 +439,22 @@ Return in JSON:
     if (geminiKey) {
       try {
         const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const parts: any[] = [{ text: context }];
+        if (audioBase64) {
+          parts.push({
+            inlineData: {
+              mimeType: mimeType || 'audio/wav',
+              data: audioBase64,
+            },
+          });
+        }
+
         const resp = await ai.models.generateContent({
           model: customGeminiModel || 'gemini-2.5-flash',
           contents: [
             {
               role: 'user',
-              parts: [
-                { text: context },
-                {
-                  inlineData: {
-                    mimeType: 'audio/wav',
-                    data: audioBase64,
-                  },
-                },
-              ],
+              parts,
             },
           ],
           config: {
@@ -469,12 +474,15 @@ Return in JSON:
     }
 
     if (groqKey) {
-      const wavBuffer = Buffer.from(audioBase64, 'base64');
-      const transcript = await groqTranscribe(groqKey, customWhisperModel || 'whisper-large-v3-turbo', wavBuffer);
+      let transcript = textResponse || '';
+      if (audioBase64) {
+        const wavBuffer = Buffer.from(audioBase64, 'base64');
+        transcript = await groqTranscribe(groqKey, customWhisperModel || 'whisper-large-v3-turbo', wavBuffer);
+      }
       const data = await callGroq(
         groqKey,
         customGroqModel || 'openai/gpt-oss-120b',
-        TEACHER_RULES + '\nYou only have a transcript, so pronunciation must be [].',
+        TEACHER_RULES + '\nPronunciation must be [].',
         context + '\nTranscript:\n' + transcript
       );
       return res.json({ data, by: 'Groq' });
@@ -499,17 +507,19 @@ app.post('/api/analyze-speed', async (req: Request, res: Response) => {
       customGeminiModel,
       customGroqModel,
       customWhisperModel,
+      mimeType,
+      textResponse,
     } = req.body;
 
-    if (!audioBase64) {
-      return res.status(400).json({ error: 'Enregistrement audio manquant.' });
+    if (!audioBase64 && !textResponse) {
+      return res.status(400).json({ error: 'Enregistrement audio ou texte manquant.' });
     }
 
     const context = `
 Word: "${word || ''}"
 Topic: "${topicTitle || ''}"
 Question: "${question || ''}"
-
+${textResponse ? `\nStudent response:\n"${textResponse}"\n` : ''}
 The student had approximately 30 seconds to answer.
 
 Analyze:
@@ -553,20 +563,22 @@ Return exactly in JSON:
     if (geminiKey) {
       try {
         const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const parts: any[] = [{ text: context }];
+        if (audioBase64) {
+          parts.push({
+            inlineData: {
+              mimeType: mimeType || 'audio/wav',
+              data: audioBase64,
+            },
+          });
+        }
+
         const resp = await ai.models.generateContent({
           model: customGeminiModel || 'gemini-2.5-flash',
           contents: [
             {
               role: 'user',
-              parts: [
-                { text: context },
-                {
-                  inlineData: {
-                    mimeType: 'audio/wav',
-                    data: audioBase64,
-                  },
-                },
-              ],
+              parts,
             },
           ],
           config: {
@@ -586,8 +598,11 @@ Return exactly in JSON:
     }
 
     if (groqKey) {
-      const wavBuffer = Buffer.from(audioBase64, 'base64');
-      const transcript = await groqTranscribe(groqKey, customWhisperModel || 'whisper-large-v3-turbo', wavBuffer);
+      let transcript = textResponse || '';
+      if (audioBase64) {
+        const wavBuffer = Buffer.from(audioBase64, 'base64');
+        transcript = await groqTranscribe(groqKey, customWhisperModel || 'whisper-large-v3-turbo', wavBuffer);
+      }
       const data = await callGroq(
         groqKey,
         customGroqModel || 'openai/gpt-oss-120b',

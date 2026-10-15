@@ -1,9 +1,18 @@
-export const SILENCE_THRESHOLD = 0.025;
+export const SILENCE_THRESHOLD = 0.01;
 
 export async function toWav(blob: Blob): Promise<Blob> {
   const ab = await blob.arrayBuffer();
   const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+  if (!Ctx) {
+    throw new Error('Web Audio API not supported');
+  }
+
   const ctx = new Ctx();
+  if (ctx.state === 'suspended') {
+    try {
+      await ctx.resume();
+    } catch {}
+  }
 
   const buf = await new Promise<AudioBuffer>((resolve, reject) => {
     ctx.decodeAudioData(ab, resolve, reject);
@@ -55,6 +64,16 @@ export async function toWav(blob: Blob): Promise<Blob> {
   return new Blob([view], { type: 'audio/wav' });
 }
 
+export async function toWavOrOriginal(blob: Blob): Promise<{ blob: Blob; mimeType: string }> {
+  try {
+    const wav = await toWav(blob);
+    return { blob: wav, mimeType: 'audio/wav' };
+  } catch (err) {
+    console.warn('WAV conversion fallback to original blob:', err);
+    return { blob, mimeType: blob.type || 'audio/webm' };
+  }
+}
+
 export function blobToB64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const fr = new FileReader();
@@ -94,4 +113,24 @@ export function calculateSpeedScore(wpm: number, pauses: number, errors: number)
   score -= Math.min(20, errors * 4);
 
   return Math.max(0, Math.min(100, score));
+}
+
+export function getSupportedAudioMimeType(): string {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const candidateTypes = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/aac',
+    'audio/ogg;codecs=opus',
+    '',
+  ];
+
+  for (const t of candidateTypes) {
+    if (!t) return '';
+    try {
+      if (MediaRecorder.isTypeSupported(t)) return t;
+    } catch {}
+  }
+  return '';
 }

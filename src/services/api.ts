@@ -67,7 +67,9 @@ export async function apiAnalyzeTopic(
   word: string,
   topicTitle: string,
   question: string,
-  audioBase64: string
+  audioBase64?: string,
+  mimeType: string = 'audio/wav',
+  textResponse?: string
 ): Promise<{ data: AnalysisResult; by: string }> {
   const settings = getSettings();
   const res = await fetch('/api/analyze-topic', {
@@ -78,6 +80,8 @@ export async function apiAnalyzeTopic(
       topicTitle,
       question,
       audioBase64,
+      mimeType,
+      textResponse,
       customGeminiKey: settings.gkey,
       customGroqKey: settings.rkey,
       customGeminiModel: settings.gmodel,
@@ -97,7 +101,9 @@ export async function apiAnalyzeSpeed(
   word: string,
   topicTitle: string,
   question: string,
-  audioBase64: string
+  audioBase64?: string,
+  mimeType: string = 'audio/wav',
+  textResponse?: string
 ): Promise<{ data: AnalysisResult; by: string }> {
   const settings = getSettings();
   const res = await fetch('/api/analyze-speed', {
@@ -108,6 +114,8 @@ export async function apiAnalyzeSpeed(
       topicTitle,
       question,
       audioBase64,
+      mimeType,
+      textResponse,
       customGeminiKey: settings.gkey,
       customGroqKey: settings.rkey,
       customGeminiModel: settings.gmodel,

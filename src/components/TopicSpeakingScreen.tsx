@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Topic, AnalysisResult, CEFRLevel } from '../types';
 import { getUsedTopics, saveUsedTopics } from '../services/storage';
-import { toWav, blobToB64 } from '../services/audio';
+import { toWavOrOriginal, blobToB64, getSupportedAudioMimeType } from '../services/audio';
 import { apiGenerateTopics, apiAnalyzeTopic } from '../services/api';
 import { TapWordText } from './TapWordText';
 import { AnalysisResultsView } from './AnalysisResultsView';
@@ -21,31 +21,55 @@ export const TopicSpeakingScreen: React.FC<TopicSpeakingScreenProps> = ({ onTran
 
   // Recording state
   const [recordingIndex, setRecordingIndex] = useState<number | null>(null);
+  const [isStartingMic, setIsStartingMic] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(TOPIC_MAX_SECONDS);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [analyzedBy, setAnalyzedBy] = useState<string>('');
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [audioLevel, setAudioLevel] = useState<number>(0);
+
+  // Alternative input modes
+  const [textModeIndex, setTextModeIndex] = useState<number | null>(null);
+  const [textResponses, setTextResponses] = useState<Record<number, string>>({});
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
+  const levelIntervalRef = useRef<any>(null);
   const startTimeRef = useRef<number>(0);
   const resultRef = useRef<HTMLDivElement>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const activeUploadIndexRef = useRef<number>(0);
 
-  // Clean up recorder on unmount
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-      }
-      if (audioStreamRef.current) {
-        audioStreamRef.current.getTracks().forEach((t) => t.stop());
-      }
+      cleanupRecording();
     };
   }, []);
+
+  const cleanupRecording = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (levelIntervalRef.current) clearInterval(levelIntervalRef.current);
+
+    try {
+      audioContextRef.current?.close();
+    } catch {}
+    audioContextRef.current = null;
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    mediaRecorderRef.current = null;
+
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((t) => t.stop());
+    }
+    audioStreamRef.current = null;
+  };
 
   const handleGenerateTopics = async () => {
     const trimmed = word.trim();
@@ -59,6 +83,8 @@ export const TopicSpeakingScreen: React.FC<TopicSpeakingScreenProps> = ({ onTran
     setTopics([]);
     setAnalysisResult(null);
     setAnalysisError(null);
+    setMicError(null);
+    setTextModeIndex(null);
 
     const used = getUsedTopics(trimmed);
 
@@ -82,21 +108,64 @@ export const TopicSpeakingScreen: React.FC<TopicSpeakingScreenProps> = ({ onTran
 
   const startRecording = async (index: number) => {
     if (mediaRecorderRef.current) return;
+    setMicError(null);
+    setIsStartingMic(true);
 
-    if (!navigator.mediaDevices || !window.MediaRecorder) {
-      alert('Ton navigateur ne supporte pas l’enregistrement.');
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setIsStartingMic(false);
+      setMicError(
+        "L'accès au microphone n'est pas supporté par ce navigateur ou est bloqué par la sécurité du site. Utilisez les options alternatives ci-dessous (importer un enregistrement ou écrire votre réponse)."
+      );
       return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
       audioStreamRef.current = stream;
       audioChunksRef.current = [];
       setRecordingIndex(index);
       setTimeLeft(TOPIC_MAX_SECONDS);
       startTimeRef.current = Date.now();
+      setIsStartingMic(false);
 
-      const recorder = new MediaRecorder(stream);
+      // Setup audio level visualizer
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          if (ctx.state === 'suspended') {
+            await ctx.resume();
+          }
+          audioContextRef.current = ctx;
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 256;
+          const source = ctx.createMediaStreamSource(stream);
+          source.connect(analyser);
+
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          levelIntervalRef.current = setInterval(() => {
+            analyser.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+              sum += dataArray[i];
+            }
+            const avg = sum / dataArray.length;
+            setAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
+          }, 100);
+        }
+      } catch (e) {
+        console.warn('Audio level visualizer initialization skipped:', e);
+      }
+
+      const mimeType = getSupportedAudioMimeType();
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (e) => {
@@ -108,27 +177,22 @@ export const TopicSpeakingScreen: React.FC<TopicSpeakingScreenProps> = ({ onTran
       recorder.onstop = async () => {
         const duration = (Date.now() - startTimeRef.current) / 1000;
         const chunks = audioChunksRef.current.slice();
-        const type = recorder.mimeType || 'audio/webm';
+        const detectedType = recorder.mimeType || 'audio/webm';
 
-        // Cleanup stream & timer
-        if (timerRef.current) clearInterval(timerRef.current);
-        if (audioStreamRef.current) {
-          audioStreamRef.current.getTracks().forEach((t) => t.stop());
-        }
-        mediaRecorderRef.current = null;
-        audioStreamRef.current = null;
+        cleanupRecording();
         setRecordingIndex(null);
+        setAudioLevel(0);
 
-        if (duration < 2) {
-          alert('Trop court, réessaie.');
+        if (duration < 1.5) {
+          setMicError('Enregistrement trop court. Parlez pendant au moins quelques secondes avant de terminer.');
           return;
         }
 
-        const rawBlob = new Blob(chunks, { type });
-        await handleAnalyze(rawBlob, index);
+        const rawBlob = new Blob(chunks, { type: detectedType });
+        await handleAnalyzeAudio(rawBlob, index);
       };
 
-      recorder.start();
+      recorder.start(250);
 
       timerRef.current = setInterval(() => {
         setTimeLeft((prev) => {
@@ -139,8 +203,18 @@ export const TopicSpeakingScreen: React.FC<TopicSpeakingScreenProps> = ({ onTran
           return prev - 1;
         });
       }, 1000);
-    } catch {
-      alert('Micro refusé ou indisponible. Autorise le microphone.');
+    } catch (err: any) {
+      setIsStartingMic(false);
+      console.error('Microphone access failed:', err);
+      let errorMsg = "Impossible d'accéder au microphone.";
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError' || err.message?.includes('Permission denied')) {
+        errorMsg = "L'accès au microphone a été refusé (Permission Denied). Votre navigateur a bloqué le micro.";
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        errorMsg = "Aucun microphone détecté sur cet appareil.";
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        errorMsg = "Le microphone est déjà utilisé par une autre application.";
+      }
+      setMicError(errorMsg);
     }
   };
 
@@ -150,7 +224,7 @@ export const TopicSpeakingScreen: React.FC<TopicSpeakingScreenProps> = ({ onTran
     }
   };
 
-  const handleAnalyze = async (rawBlob: Blob, idx: number) => {
+  const handleAnalyzeAudio = async (rawBlob: Blob, idx: number) => {
     const topic = topics[idx];
     if (!topic) return;
 
@@ -163,9 +237,9 @@ export const TopicSpeakingScreen: React.FC<TopicSpeakingScreenProps> = ({ onTran
     }, 100);
 
     try {
-      const wavBlob = await toWav(rawBlob);
-      const b64 = await blobToB64(wavBlob);
-      const res = await apiAnalyzeTopic(word, topic.title, topic.question, b64);
+      const { blob: finalBlob, mimeType } = await toWavOrOriginal(rawBlob);
+      const b64 = await blobToB64(finalBlob);
+      const res = await apiAnalyzeTopic(word, topic.title, topic.question, b64, mimeType);
       setAnalysisResult(res.data);
       setAnalyzedBy(res.by);
       setTimeout(() => {
@@ -173,6 +247,65 @@ export const TopicSpeakingScreen: React.FC<TopicSpeakingScreenProps> = ({ onTran
       }, 150);
     } catch (err: any) {
       setAnalysisError(err?.message || 'Impossible d’analyser l’audio.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const idx = activeUploadIndexRef.current;
+    const topic = topics[idx];
+    if (!topic) return;
+
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    setAnalysisResult(null);
+
+    setTimeout(() => {
+      resultRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+
+    try {
+      const b64 = await blobToB64(file);
+      const res = await apiAnalyzeTopic(word, topic.title, topic.question, b64, file.type || 'audio/wav');
+      setAnalysisResult(res.data);
+      setAnalyzedBy(res.by);
+      setTimeout(() => {
+        resultRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 150);
+    } catch (err: any) {
+      setAnalysisError(err?.message || "Impossible d'analyser le fichier audio.");
+    } finally {
+      setIsAnalyzing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleAnalyzeText = async (idx: number) => {
+    const topic = topics[idx];
+    const text = textResponses[idx]?.trim();
+    if (!topic || !text) return;
+
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    setAnalysisResult(null);
+
+    setTimeout(() => {
+      resultRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+
+    try {
+      const res = await apiAnalyzeTopic(word, topic.title, topic.question, undefined, undefined, text);
+      setAnalysisResult(res.data);
+      setAnalyzedBy(res.by);
+      setTimeout(() => {
+        resultRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 150);
+    } catch (err: any) {
+      setAnalysisError(err?.message || "Impossible d'analyser votre réponse écrite.");
     } finally {
       setIsAnalyzing(false);
     }
@@ -186,6 +319,15 @@ export const TopicSpeakingScreen: React.FC<TopicSpeakingScreenProps> = ({ onTran
 
   return (
     <div>
+      {/* Hidden file input for audio file upload */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept="audio/*,.mp3,.wav,.m4a,.webm,.aac,.ogg"
+        style={{ display: 'none' }}
+        onChange={handleFileUpload}
+      />
+
       <div className="card">
         <b>Topic Speaking</b>
         <p className="muted">
@@ -236,11 +378,34 @@ export const TopicSpeakingScreen: React.FC<TopicSpeakingScreenProps> = ({ onTran
         {genMsg && <p className="muted" id="genMsg">{genMsg}</p>}
       </div>
 
+      {/* Global mic error banner if permission failed */}
+      {micError && (
+        <div className="card" style={{ borderLeft: '4px solid #e5484d', background: '#fff6f6' }}>
+          <b style={{ color: '#c0282d' }}>⚠️ Accès au microphone bloqué (Permission Denied)</b>
+          <p style={{ margin: '6px 0 10px', fontSize: '14px', color: '#4f5872', lineHeight: 1.5 }}>
+            {micError}
+          </p>
+
+          <div style={{ background: '#fff', padding: '10px 12px', borderRadius: '8px', fontSize: '13px', color: '#394159', border: '1px solid #fed7d7', marginBottom: '12px' }}>
+            <b>🔧 Comment autoriser le micro :</b>
+            <ul style={{ margin: '6px 0 0', paddingLeft: '18px', lineHeight: 1.6 }}>
+              <li><b>Sur ordinateur (Chrome / Edge / Firefox) :</b> Cliquez sur l'icône de cadenas 🔒 ou de caméra à gauche de l'adresse du site (URL) &gt; activez <i>Microphone</i> &gt; rechargez la page.</li>
+              <li><b>Sur téléphone / tablette :</b> Allez dans les réglages de votre navigateur &gt; <i>Paramètres de site</i> &gt; <i>Microphone</i> &gt; <i>Autoriser</i>.</li>
+            </ul>
+          </div>
+
+          <p className="muted" style={{ fontSize: '13px', margin: '4px 0 0' }}>
+            💡 <b>Pas de micro ?</b> Vous pouvez tout de même vous entraîner ci-dessous en <b>important un enregistrement audio</b> ou en <b>saisissant votre réponse par écrit</b>.
+          </p>
+        </div>
+      )}
+
       {/* Topics list */}
       <div id="topics">
         {topics.map((t, i) => {
           const isCurrentRecording = recordingIndex === i;
           const isOtherRecording = recordingIndex !== null && recordingIndex !== i;
+          const isTextMode = textModeIndex === i;
 
           return (
             <div className="card topic" key={i}>
@@ -263,34 +428,131 @@ export const TopicSpeakingScreen: React.FC<TopicSpeakingScreenProps> = ({ onTran
               </p>
 
               {isCurrentRecording && (
-                <div style={{ margin: '12px 0' }}>
-                  <div className="rec">{formatTimer(timeLeft)}</div>
-                  <div className="bar">
+                <div style={{ margin: '14px 0', padding: '12px', background: '#fdf2f2', borderRadius: '12px', border: '1px solid #fed7d7' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <span style={{ display: 'inline-block', width: '12px', height: '12px', borderRadius: '50%', background: '#e5484d', animation: 'pulse 1.2s infinite' }}></span>
+                    <span style={{ fontWeight: 700, color: '#e5484d', fontSize: '14px' }}>ENREGISTREMENT EN COURS</span>
+                  </div>
+
+                  <div className="rec" style={{ margin: '4px 0' }}>{formatTimer(timeLeft)}</div>
+
+                  <div className="bar" style={{ margin: '8px 0' }}>
                     <i
                       style={{
                         width: `${((TOPIC_MAX_SECONDS - timeLeft) / TOPIC_MAX_SECONDS) * 100}%`,
                       }}
                     />
                   </div>
-                  <p className="muted" style={{ textAlign: 'center', marginTop: '6px' }}>
-                    Parle librement. Les pauses sont normales.
+
+                  {/* Audio wave level meter */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+                    <span style={{ fontSize: '12px', color: '#6a7390' }}>Niveau micro :</span>
+                    <div style={{ flex: 1, height: '6px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${Math.min(100, audioLevel * 1.5)}%`,
+                          background: audioLevel > 15 ? '#2e9e5b' : '#3182ce',
+                          transition: 'width 0.1s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <p className="muted" style={{ textAlign: 'center', marginTop: '8px', marginBottom: 0 }}>
+                    Parle librement. Quand tu as terminé, clique sur Terminer ci-dessous.
                   </p>
                 </div>
               )}
 
-              <button
-                className={`btn ${isCurrentRecording ? 'red' : ''}`}
-                onClick={() => {
-                  if (isCurrentRecording) {
-                    stopRecording();
-                  } else {
-                    startRecording(i);
-                  }
-                }}
-                disabled={isOtherRecording || isAnalyzing}
-              >
-                {isCurrentRecording ? '⏹ Terminer' : '🎤 Parler — 3 min max'}
-              </button>
+              {/* Text mode input area */}
+              {isTextMode && (
+                <div style={{ margin: '12px 0', padding: '12px', background: '#f7f8fc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <label style={{ margin: '0 0 6px', fontWeight: 600, color: '#1c2333' }}>
+                    ✍️ Écris ta réponse en anglais (mode sans micro) :
+                  </label>
+                  <textarea
+                    rows={4}
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      borderRadius: '8px',
+                      border: '1px solid #cdd3e4',
+                      fontSize: '15px',
+                      fontFamily: 'inherit',
+                      resize: 'vertical',
+                    }}
+                    placeholder="Type what you want to say in English..."
+                    value={textResponses[i] || ''}
+                    onChange={(e) =>
+                      setTextResponses((prev) => ({ ...prev, [i]: e.target.value }))
+                    }
+                  />
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                    <button
+                      className="btn green"
+                      style={{ flex: 2, padding: '10px 14px', fontSize: '14px' }}
+                      onClick={() => handleAnalyzeText(i)}
+                      disabled={isAnalyzing || !textResponses[i]?.trim()}
+                    >
+                      🚀 Analyser ma réponse
+                    </button>
+                    <button
+                      className="btn gray"
+                      style={{ flex: 1, padding: '10px 14px', fontSize: '14px' }}
+                      onClick={() => setTextModeIndex(null)}
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
+                <button
+                  className={`btn ${isCurrentRecording ? 'red' : ''}`}
+                  style={{ flex: 2 }}
+                  onClick={() => {
+                    if (isCurrentRecording) {
+                      stopRecording();
+                    } else {
+                      startRecording(i);
+                    }
+                  }}
+                  disabled={isOtherRecording || isAnalyzing || isStartingMic}
+                >
+                  {isStartingMic && recordingIndex === null
+                    ? '⏳ Connexion micro…'
+                    : isCurrentRecording
+                    ? '⏹ Terminer'
+                    : '🎤 Parler — 3 min max'}
+                </button>
+
+                {/* Alternative: File Upload */}
+                <button
+                  className="btn gray"
+                  style={{ flex: 1, minWidth: '130px', padding: '10px 12px', fontSize: '13px' }}
+                  onClick={() => {
+                    activeUploadIndexRef.current = i;
+                    fileInputRef.current?.click();
+                  }}
+                  disabled={isCurrentRecording || isAnalyzing}
+                  title="Téléverser un mémo vocal ou fichier audio"
+                >
+                  📁 Audio
+                </button>
+
+                {/* Alternative: Text Mode */}
+                <button
+                  className="btn gray"
+                  style={{ flex: 1, minWidth: '120px', padding: '10px 12px', fontSize: '13px' }}
+                  onClick={() => setTextModeIndex(isTextMode ? null : i)}
+                  disabled={isCurrentRecording || isAnalyzing}
+                  title="Écrire ma réponse"
+                >
+                  ✍️ Écrit
+                </button>
+              </div>
             </div>
           );
         })}
@@ -301,7 +563,7 @@ export const TopicSpeakingScreen: React.FC<TopicSpeakingScreenProps> = ({ onTran
         {isAnalyzing && (
           <div className="card">
             <b>Analyse en cours…</b>
-            <p className="muted">Gemini analyse ton anglais.</p>
+            <p className="muted">Gemini analyse ta réponse en détail.</p>
           </div>
         )}
 
