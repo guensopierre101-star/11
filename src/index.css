@@ -1,0 +1,396 @@
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: #f4f6fb;
+  color: #1c2333;
+  padding-bottom: 40px;
+}
+
+header {
+  background: #2f5bea;
+  color: #fff;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+header b {
+  font-size: 18px;
+}
+
+#back, .back-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 0;
+  color: #fff;
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#back:hover, .back-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 14px;
+}
+
+.card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 0;
+  border-radius: 16px;
+  padding: 18px 16px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #1c2333;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.menu button:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.menu button small {
+  display: block;
+  font-weight: 400;
+  font-size: 13px;
+  color: #6a7390;
+  margin-top: 3px;
+}
+
+.menu .ic {
+  font-size: 28px;
+}
+
+input, select {
+  width: 100%;
+  padding: 13px;
+  border: 1px solid #cdd3e4;
+  border-radius: 12px;
+  font-size: 16px;
+  font-family: inherit;
+  background: #fff;
+  color: #1c2333;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: #2f5bea;
+  box-shadow: 0 0 0 3px rgba(47, 91, 234, 0.15);
+}
+
+label {
+  display: block;
+  font-size: 14px;
+  color: #6a7390;
+  margin: 12px 0 4px;
+}
+
+.btn {
+  background: #2f5bea;
+  color: #fff;
+  border: 0;
+  border-radius: 12px;
+  padding: 13px 16px;
+  font-size: 16px;
+  font-weight: 600;
+  width: 100%;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.btn.red {
+  background: #e5484d;
+}
+
+.btn.green {
+  background: #2e9e5b;
+}
+
+.btn.gray {
+  background: #e8ecf8;
+  color: #2f5bea;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.muted {
+  color: #6a7390;
+  font-size: 14px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.row > * {
+  flex: 1;
+}
+
+.topic h3 {
+  margin: 6px 0 5px;
+  font-size: 17px;
+  line-height: 1.4;
+}
+
+.topic p {
+  margin: 0 0 12px;
+  color: #394159;
+  line-height: 1.5;
+}
+
+.pill {
+  display: inline-block;
+  background: #e8ecf8;
+  color: #2f5bea;
+  border-radius: 99px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rec {
+  font-size: 28px;
+  font-weight: 700;
+  text-align: center;
+  margin: 8px 0;
+  color: #e5484d;
+}
+
+.bar {
+  height: 8px;
+  background: #e8ecf8;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.bar i {
+  display: block;
+  height: 100%;
+  background: #e5484d;
+  width: 0;
+  transition: width 0.3s ease;
+}
+
+.good {
+  border-left: 4px solid #2e9e5b;
+  background: #f2fbf5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+
+.err {
+  border-left: 4px solid #e5484d;
+  background: #fff6f6;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+
+.err .x {
+  color: #c0282d;
+  text-decoration: line-through;
+}
+
+.err .ok {
+  color: #1f8a4c;
+  font-weight: 600;
+}
+
+.stat {
+  text-align: center;
+  background: #f7f8fc;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.stat b {
+  display: block;
+  font-size: 24px;
+}
+
+.stat span {
+  color: #6a7390;
+  font-size: 12px;
+}
+
+.score {
+  font-size: 42px;
+  font-weight: 800;
+  text-align: center;
+  margin: 4px 0;
+}
+
+h2 {
+  font-size: 18px;
+  margin: 16px 0 7px;
+}
+
+h3 {
+  font-size: 17px;
+}
+
+.tag {
+  font-size: 12px;
+  color: #6a7390;
+}
+
+/* =========================================================
+   TAP-TO-TRANSLATE
+========================================================= */
+.tap-word {
+  cursor: pointer;
+  border-radius: 5px;
+  padding: 1px 3px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tap-word:hover, .tap-word:active {
+  background: #e8ecf8;
+  color: #2f5bea;
+}
+
+.translate-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 22, 40, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 30;
+  padding: 12px;
+}
+
+.translate-box {
+  width: min(640px, 100%);
+  background: #fff;
+  border-radius: 20px;
+  padding: 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  max-height: 75vh;
+  overflow: auto;
+  animation: slideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.translate-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.translate-word {
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.translate-close {
+  border: 0;
+  background: #eef1f8;
+  color: #2f3650;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.translate-close:hover {
+  background: #dfe4f2;
+}
+
+.translate-label {
+  color: #6a7390;
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+.translate-result {
+  font-size: 20px;
+  font-weight: 700;
+  margin-top: 3px;
+}
+
+.translate-context {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #f7f8fc;
+  border-radius: 10px;
+  color: #4f5872;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.translate-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.translate-actions button {
+  flex: 1;
+}

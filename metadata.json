@@ -1,0 +1,8 @@
+{
+  "name": "THE10th🎤 - English Speaking Coach",
+  "description": "Pratique d'expression orale en anglais avec Topic Speaking, Speed Speaking, retour instantané par IA et tap-to-translate.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
